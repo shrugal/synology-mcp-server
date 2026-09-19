@@ -18,11 +18,13 @@ const ENTRY = '/webapi/entry.cgi';
 /** Calendar entry as returned by SYNO.Cal.Cal list */
 export interface SynoCalendar {
   cal_id: string;
-  name: string;
-  color: string;
-  is_owner: boolean;
-  is_shared: boolean;
-  description: string;
+  cal_displayname: string;
+  cal_color: string;
+  cal_description: string;
+  /** "RW" or "RO" — this account's access to the calendar. */
+  cal_privilege: string;
+  /** Differs from cal_id when another user shared this calendar in. */
+  original_cal_id?: string;
 }
 
 /** Attendee as stored in the Synology event */
@@ -32,26 +34,37 @@ export interface SynoAttendee {
   status?: string;
 }
 
-/** Event as returned by SYNO.Cal.Event */
+/**
+ * Event as returned by SYNO.Cal.Event (list and get).
+ *
+ * Datetimes are iCal-style strings, not Unix seconds: "20251218",
+ * "20251008T160000", or "TZID=Europe/Berlin:20251008T160000". The `get`
+ * method additionally returns `dtstart_utc`/`dtend_utc` in Unix seconds;
+ * `list` does not, so the string form is the only field both share.
+ */
 export interface SynoCalEvent {
-  evt_id: string;
-  cal_id: string;
-  cal_name: string;
-  title: string;
-  desc: string;
+  evt_id: number;
+  summary: string;
+  description: string;
   location: string;
-  dtstart: number;
-  dtend: number;
+  dtstart: string;
+  dtend: string;
+  tz_id?: string | null;
   is_all_day: boolean;
-  rrule?: string;
+  is_repeat_evt?: boolean;
+  evt_repeat_setting?: { repeat_rule?: string | null };
+  /** Differs from the owning calendar id when the calendar is shared in. */
+  original_cal_id?: string;
+  owner_name?: string;
   attendee?: SynoAttendee[];
 }
 
-/** Raw list response from SYNO.Cal.Event list */
-interface SynoEventListResponse {
-  total: number;
-  events: SynoCalEvent[];
-}
+/**
+ * SYNO.Cal.Event list returns events grouped by calendar id, not a flat
+ * array — e.g. `{ "/mcp/home/": [ ...events ] }`. Calendars with no events
+ * in range are omitted entirely.
+ */
+export type SynoEventListResponse = Record<string, SynoCalEvent[]>;
 
 /** Raw create/update response from SYNO.Cal.Event */
 interface SynoEventMutateResponse {
@@ -139,7 +152,19 @@ export class CalendarClient extends BaseClient {
    *
    * @param opts - Query options including optional calendar_id, start/end, limit.
    */
-  listEvents(opts: ListEventsOpts): Promise<SynoEventListResponse> {
+  async listEvents(opts: ListEventsOpts): Promise<SynoEventListResponse> {
+    // DSM requires cal_id_list — a JSON array of calendar ids. A bare `cal_id`,
+    // or omitting the filter entirely, fails with error 117. "All calendars"
+    // therefore means enumerating them first.
+    const calendarIds =
+      opts.calendar_id !== undefined
+        ? [opts.calendar_id]
+        : (await this.listCalendars()).map((c) => c.cal_id);
+
+    if (calendarIds.length === 0) {
+      return {};
+    }
+
     const params: Record<string, string | number | boolean> = {
       api: 'SYNO.Cal.Event',
       version: 1,
@@ -147,8 +172,8 @@ export class CalendarClient extends BaseClient {
       start: opts.start_unix,
       end: opts.end_unix,
       limit: opts.limit ?? 100,
+      cal_id_list: JSON.stringify(calendarIds),
     };
-    if (opts.calendar_id !== undefined) params['cal_id'] = opts.calendar_id;
 
     return this.request<SynoEventListResponse>({ endpoint: ENTRY, method: 'GET', params });
   }

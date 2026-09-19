@@ -23,7 +23,7 @@ export const calendarGetEventTool: ToolDefinition<typeof inputSchema> = {
   async handler(input: z.infer<typeof inputSchema>, ctx: ToolContext) {
     try {
       const event = await ctx.calendarClient.getEvent(input.event_id, input.calendar_id);
-      return mapEvent(event);
+      return mapEvent(event, input.calendar_id);
     } catch (err) {
       return toMcpError(err);
     }

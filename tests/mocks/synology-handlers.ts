@@ -133,27 +133,58 @@ const MAIL_DETAIL_FIXTURE = {
 // Calendar fixture data
 // ---------------------------------------------------------------------------
 
+// Shapes below mirror real DSM 7 responses: calendars use cal_* field names
+// and report sharing via original_cal_id; events use summary/description and
+// iCal-style datetime strings, grouped by calendar id in list responses.
 const CALENDAR_FIXTURE = {
   cal_id: 'cal-001',
-  name: 'Personal',
-  color: '#4A90E2',
-  is_owner: true,
-  is_shared: false,
-  description: 'My personal calendar',
+  cal_displayname: 'Personal',
+  cal_color: '#4A90E2',
+  cal_description: 'My personal calendar',
+  cal_privilege: 'RW',
+  original_cal_id: 'cal-001',
+};
+
+/** A calendar shared in from another account (read-only). */
+const SHARED_CALENDAR_FIXTURE = {
+  cal_id: 'cal-002',
+  cal_displayname: "Alice's Calendar",
+  cal_color: '#C24279',
+  cal_description: '',
+  cal_privilege: 'RO',
+  original_cal_id: '/alice/home/',
 };
 
 const EVENT_FIXTURE = {
-  evt_id: 'evt-001',
-  cal_id: 'cal-001',
-  cal_name: 'Personal',
-  title: 'Team Meeting',
-  desc: 'Weekly sync',
+  evt_id: 1001,
+  summary: 'Team Meeting',
+  description: 'Weekly sync',
   location: 'Conference Room A',
-  dtstart: 1700000000,
-  dtend: 1700003600,
+  dtstart: 'TZID=Europe/Berlin:20240115T100000',
+  dtend: 'TZID=Europe/Berlin:20240115T110000',
+  tz_id: 'Europe/Berlin',
   is_all_day: false,
-  rrule: undefined as string | undefined,
+  is_repeat_evt: false,
+  evt_repeat_setting: { repeat_rule: '' },
+  original_cal_id: 'cal-001',
+  owner_name: 'testuser',
   attendee: [{ email: 'alice@example.com', name: 'Alice', status: 'accepted' }],
+};
+
+/** All-day event: date-only stamps, no zone. */
+const ALL_DAY_EVENT_FIXTURE = {
+  evt_id: 1002,
+  summary: 'Urlaub',
+  description: '',
+  location: '',
+  dtstart: '20240120',
+  dtend: '20240123',
+  tz_id: null,
+  is_all_day: true,
+  is_repeat_evt: false,
+  evt_repeat_setting: { repeat_rule: '' },
+  original_cal_id: '/alice/home/',
+  owner_name: 'alice',
 };
 
 // ---------------------------------------------------------------------------
@@ -269,13 +300,21 @@ function handleGet(request: Request): Response {
 
   // --- SYNO.Cal.Cal ---
   if (api === 'SYNO.Cal.Cal' && method === 'list') {
-    return ok([CALENDAR_FIXTURE]);
+    return ok([CALENDAR_FIXTURE, SHARED_CALENDAR_FIXTURE]);
   }
 
   // --- SYNO.Cal.Event ---
   if (api === 'SYNO.Cal.Event') {
     if (method === 'list') {
-      return ok({ total: 1, events: [EVENT_FIXTURE] });
+      // DSM rejects a list without cal_id_list (error 117), and returns events
+      // grouped by calendar id, omitting calendars with nothing in range.
+      const calIdList = url.searchParams.get('cal_id_list');
+      if (calIdList === null) return synoError(117);
+      const requested = JSON.parse(calIdList) as string[];
+      const byCalendar: Record<string, unknown[]> = {};
+      if (requested.includes('cal-001')) byCalendar['cal-001'] = [EVENT_FIXTURE];
+      if (requested.includes('cal-002')) byCalendar['cal-002'] = [ALL_DAY_EVENT_FIXTURE];
+      return ok(byCalendar);
     }
     if (method === 'get') {
       const evtId = url.searchParams.get('evt_id');

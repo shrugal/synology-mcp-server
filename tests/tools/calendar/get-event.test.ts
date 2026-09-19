@@ -20,11 +20,13 @@ describe('calendar_get_event', () => {
       { event_id: 'evt-001', calendar_id: 'cal-001' },
       ctx,
     )) as Record<string, unknown>;
-    expect(result['id']).toBe('evt-001');
+    expect(result['id']).toBe('1001');
     expect(result['title']).toBe('Team Meeting');
-    expect(typeof result['start']).toBe('string');
-    expect(result['start']).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(typeof result['end']).toBe('string');
+    expect(result['start']).toBe('2024-01-15T10:00:00');
+    expect(result['end']).toBe('2024-01-15T11:00:00');
+    expect(result['timezone']).toBe('Europe/Berlin');
+    // `get` carries no calendar id of its own — it comes from the caller.
+    expect(result['calendar_id']).toBe('cal-001');
   });
 
   it('returns attendees array', async () => {

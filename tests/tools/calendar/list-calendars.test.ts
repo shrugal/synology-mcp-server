@@ -23,8 +23,25 @@ describe('calendar_list_calendars', () => {
       id: 'cal-001',
       name: 'Personal',
       color: '#4A90E2',
+      description: 'My personal calendar',
       is_owner: true,
       is_shared: false,
+      writable: true,
+    });
+  });
+
+  // A calendar shared in from another account keeps its source id in
+  // original_cal_id, which is how ownership and sharing are derived.
+  it('flags a shared read-only calendar', async () => {
+    const ctx = createTestContext();
+    const result = (await calendarListCalendarsTool.handler({}, ctx)) as Record<string, unknown>;
+    const calendars = result['calendars'] as Array<Record<string, unknown>>;
+    expect(calendars[1]).toMatchObject({
+      id: 'cal-002',
+      name: "Alice's Calendar",
+      is_owner: false,
+      is_shared: true,
+      writable: false,
     });
   });
 

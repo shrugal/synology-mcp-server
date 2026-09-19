@@ -47,9 +47,17 @@ export const calendarListEventsTool: ToolDefinition<typeof inputSchema> = {
         limit: input.limit,
       });
 
+      // DSM groups events by calendar id; flatten, order by start, then apply
+      // the caller's limit (DSM's own `limit` applies per calendar).
+      const events = Object.entries(result)
+        .flatMap(([calendarId, calEvents]) =>
+          (calEvents ?? []).map((e) => mapEvent(e, calendarId)),
+        )
+        .sort((a, b) => a.start.localeCompare(b.start));
+
       return {
-        total: result.total,
-        events: result.events.map(mapEvent),
+        total: events.length,
+        events: events.slice(0, input.limit),
       };
     } catch (err) {
       return toMcpError(err);

@@ -17,16 +17,17 @@ describe('CalendarClient.listCalendars', () => {
     const client = createTestCalendarClient();
     const result = await client.listCalendars();
     expect(Array.isArray(result)).toBe(true);
-    expect(result[0]).toMatchObject({ cal_id: 'cal-001', name: 'Personal' });
+    expect(result[0]).toMatchObject({ cal_id: 'cal-001', cal_displayname: 'Personal' });
   });
 });
 
 describe('CalendarClient.listEvents', () => {
-  it('returns total and events array', async () => {
+  it('returns events grouped by calendar id', async () => {
     const client = createTestCalendarClient();
     const result = await client.listEvents({ start_unix: 1700000000, end_unix: 1700086400 });
-    expect(result.total).toBe(1);
-    expect(result.events[0]).toMatchObject({ evt_id: 'evt-001', cal_id: 'cal-001' });
+    // No calendar_id given, so every calendar is queried.
+    expect(Object.keys(result).sort()).toEqual(['cal-001', 'cal-002']);
+    expect(result['cal-001']?.[0]).toMatchObject({ evt_id: 1001, summary: 'Team Meeting' });
   });
 
   it('accepts optional calendar_id param', async () => {
@@ -36,7 +37,7 @@ describe('CalendarClient.listEvents', () => {
       start_unix: 1700000000,
       end_unix: 1700086400,
     });
-    expect(result.events.length).toBeGreaterThan(0);
+    expect(Object.keys(result)).toEqual(['cal-001']);
   });
 });
 
@@ -44,8 +45,8 @@ describe('CalendarClient.getEvent', () => {
   it('returns event by id', async () => {
     const client = createTestCalendarClient();
     const result = await client.getEvent('evt-001', 'cal-001');
-    expect(result.evt_id).toBe('evt-001');
-    expect(result.title).toBe('Team Meeting');
+    expect(result.evt_id).toBe(1001);
+    expect(result.summary).toBe('Team Meeting');
   });
 
   it('throws on not-found event', async () => {
