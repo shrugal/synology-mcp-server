@@ -59,14 +59,18 @@ afterEach(async () => {
   }
 });
 
-function startServer(authToken?: string, allowedOrigins?: string[]): Promise<number> {
+function startServer(
+  authToken?: string,
+  allowedOrigins?: string[],
+  host = '127.0.0.1',
+): Promise<number> {
   return new Promise((resolve, reject) => {
     const tools = aggregateTools(FEATURES);
     const ctx = createTestContext();
     const mcpServer = createServer(tools, ctx);
 
     const opts = {
-      host: '127.0.0.1',
+      host,
       port: 0, // OS assigns ephemeral port
       ...(authToken !== undefined ? { authToken } : {}),
       allowedOrigins: allowedOrigins ?? [],
@@ -158,6 +162,21 @@ describe('SSE transport — Origin guard', () => {
     port = await startServer(undefined, ['http://127.0.0.1']);
     const status = await get(port, '/sse', { Origin: 'http://127.0.0.1' });
     expect(status).not.toBe(403);
+  });
+
+  // A published container port forces a 0.0.0.0 bind; header-less clients
+  // (curl, mcp-remote, the SDK) must still get through when a token is set.
+  it('allows a token-bearing, Origin-less request on a 0.0.0.0 bind', async () => {
+    port = await startServer(TEST_TOKEN, [], '0.0.0.0');
+    const status = await get(port, '/sse', { Authorization: `Bearer ${TEST_TOKEN}` });
+    expect(status).not.toBe(401);
+    expect(status).not.toBe(403);
+  });
+
+  it('rejects an Origin-less request on a 0.0.0.0 bind when no token is set', async () => {
+    port = await startServer(undefined, [], '0.0.0.0');
+    const status = await get(port, '/sse');
+    expect(status).toBe(403);
   });
 });
 

@@ -46,7 +46,11 @@ export function startSseTransport(
     // ------------------------------------------------------------------
     // Security checks common to all routes
     // ------------------------------------------------------------------
-    if (!isOriginAllowed(origin, allowedOrigins, opts.host)) {
+    // A configured token substitutes for the loopback-bind check, which would
+    // otherwise 403 every header-less client whenever SSE binds 0.0.0.0.
+    const authEnforced = opts.authToken !== undefined && opts.authToken !== '';
+
+    if (!isOriginAllowed(origin, allowedOrigins, opts.host, authEnforced)) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Forbidden: Origin not allowed' }));
       return;

@@ -10,9 +10,18 @@ describe('isOriginAllowed', () => {
     expect(isOriginAllowed('', allowed, '::1')).toBe(true);
   });
 
-  it('rejects missing Origin when server is bound to non-loopback', () => {
+  it('rejects missing Origin when server is bound to non-loopback without auth', () => {
     expect(isOriginAllowed(null, allowed, '0.0.0.0')).toBe(false);
     expect(isOriginAllowed(undefined, allowed, '192.168.1.10')).toBe(false);
+  });
+
+  it('allows missing Origin on a non-loopback bind when bearer auth is enforced', () => {
+    expect(isOriginAllowed(null, allowed, '0.0.0.0', true)).toBe(true);
+    expect(isOriginAllowed(undefined, allowed, '192.168.1.10', true)).toBe(true);
+  });
+
+  it('still rejects a disallowed Origin when bearer auth is enforced', () => {
+    expect(isOriginAllowed('https://evil.example.com', allowed, '0.0.0.0', true)).toBe(false);
   });
 
   it('allows exact-match origins (case-insensitive)', () => {
