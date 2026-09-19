@@ -27,12 +27,16 @@ export interface SseTransportOptions {
  * Starts an HTTP server hosting the MCP SSE transport.
  * Returns a cleanup function that closes the HTTP server.
  *
- * @param server - Configured MCP Server instance.
+ * @param createServerInstance - Factory returning a fresh MCP Server per SSE
+ *   connection. A Server binds to exactly one transport — the SDK's
+ *   `Protocol.connect()` throws "Already connected to a transport" on the
+ *   second connect — so sharing one instance across connections would limit
+ *   the process to a single client at a time.
  * @param opts - Bind host/port, optional auth token and origin allowlist.
  * @returns Object with `httpServer` and `close()` for graceful shutdown.
  */
 export function startSseTransport(
-  server: Server,
+  createServerInstance: () => Server,
   opts: SseTransportOptions,
 ): { httpServer: http.Server; close: () => Promise<void> } {
   const allowedOrigins = opts.allowedOrigins ?? [];
@@ -66,6 +70,10 @@ export function startSseTransport(
     // GET /sse — open SSE stream
     // ------------------------------------------------------------------
     if (req.method === 'GET' && url === '/sse') {
+      // One Server per stream: concurrent clients each need their own
+      // Protocol instance. Closing the transport triggers the SDK's own
+      // Protocol cleanup, so no explicit server.close() is needed here.
+      const server = createServerInstance();
       const transport = new SSEServerTransport('/messages', res);
       const sessionId = transport.sessionId;
       activeTransports.set(sessionId, transport);
@@ -78,6 +86,14 @@ export function startSseTransport(
         const msg = err instanceof Error ? err.message : String(err);
         process.stderr.write(`SSE transport connect error: ${msg}\n`);
         activeTransports.delete(sessionId);
+        // connect() rejects before the transport writes its headers, so the
+        // client would otherwise wait on an open socket until it times out.
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Internal server error' }));
+        } else {
+          res.end();
+        }
       });
 
       return;

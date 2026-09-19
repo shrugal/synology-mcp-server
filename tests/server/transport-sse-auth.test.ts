@@ -43,6 +43,47 @@ function get(port: number, path: string, headers: Record<string, string> = {}): 
   });
 }
 
+/**
+ * Opens an SSE stream and resolves once the transport has announced its
+ * message endpoint. The stream stays open until `close()` is called, so
+ * several can be held at once.
+ */
+function openSse(
+  port: number,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; endpoint: string; close: () => void }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { hostname: '127.0.0.1', port, path: '/sse', method: 'GET', headers },
+      (res) => {
+        let buf = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => {
+          buf += chunk;
+          const match = /\/messages\?sessionId=[0-9a-f-]+/.exec(buf);
+          if (match !== null) {
+            resolve({
+              status: res.statusCode ?? 0,
+              endpoint: match[0],
+              close: () => {
+                res.destroy();
+                req.destroy();
+              },
+            });
+          }
+        });
+        res.on('end', () => reject(new Error(`stream ended early, status ${res.statusCode}`)));
+      },
+    );
+    req.on('error', (err) => {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ECONNRESET' || code === 'ECONNABORTED') return;
+      reject(err);
+    });
+    req.end();
+  });
+}
+
 let closeFn: (() => Promise<void>) | undefined;
 let port: number;
 
@@ -67,7 +108,6 @@ function startServer(
   return new Promise((resolve, reject) => {
     const tools = aggregateTools(FEATURES);
     const ctx = createTestContext();
-    const mcpServer = createServer(tools, ctx);
 
     const opts = {
       host,
@@ -76,7 +116,7 @@ function startServer(
       allowedOrigins: allowedOrigins ?? [],
     };
 
-    const { httpServer, close } = startSseTransport(mcpServer, opts);
+    const { httpServer, close } = startSseTransport(() => createServer(tools, ctx), opts);
     closeFn = close;
 
     httpServer.on('error', reject);
@@ -177,6 +217,42 @@ describe('SSE transport — Origin guard', () => {
     port = await startServer(undefined, [], '0.0.0.0');
     const status = await get(port, '/sse');
     expect(status).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Concurrent sessions
+// ---------------------------------------------------------------------------
+
+describe('SSE transport — concurrent sessions', () => {
+  // A Server binds to one transport; sharing a single instance made the second
+  // connect() reject with "Already connected to a transport", leaving the
+  // client on an open socket with no headers until it timed out.
+  it('serves two simultaneous streams with distinct session ids', async () => {
+    port = await startServer(TEST_TOKEN);
+    const auth = { Authorization: `Bearer ${TEST_TOKEN}` };
+
+    const first = await openSse(port, auth);
+    const second = await openSse(port, auth);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(first.endpoint).not.toBe(second.endpoint);
+
+    first.close();
+    second.close();
+  });
+
+  it('accepts a new stream after an earlier one closed', async () => {
+    port = await startServer(TEST_TOKEN);
+    const auth = { Authorization: `Bearer ${TEST_TOKEN}` };
+
+    const first = await openSse(port, auth);
+    first.close();
+    const second = await openSse(port, auth);
+
+    expect(second.status).toBe(200);
+    second.close();
   });
 });
 

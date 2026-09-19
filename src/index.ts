@@ -100,6 +100,9 @@ async function main(): Promise<void> {
   };
 
   const tools = aggregateTools(config.features);
+  // SSE builds one Server per connection (see startSseTransport); stdio is
+  // single-session by nature and reuses this one. Both share `ctx`, so every
+  // session reuses the same cached DSM login.
   const server = createServer(tools, ctx);
 
   // -------------------------------------------------------------------------
@@ -133,7 +136,7 @@ async function main(): Promise<void> {
   // Start transport
   // -------------------------------------------------------------------------
   if (config.mcp.transport === 'sse') {
-    const { close } = startSseTransport(server, {
+    const { close } = startSseTransport(() => createServer(tools, ctx), {
       host: config.mcp.sseHost,
       port: config.mcp.ssePort,
       ...(config.mcp.authToken !== undefined ? { authToken: config.mcp.authToken } : {}),
