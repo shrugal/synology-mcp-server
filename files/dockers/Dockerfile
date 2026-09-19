@@ -3,12 +3,17 @@
 
 FROM node:22-alpine AS build
 WORKDIR /app
-RUN corepack enable
+# Pin pnpm: corepack's floating default (pnpm 12+) aborts the install with
+# ERR_PNPM_IGNORED_BUILDS because esbuild's postinstall is not pre-approved.
+ENV HUSKY=0
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY tsconfig.json tsup.config.ts ./
 COPY src ./src
-RUN pnpm build && pnpm prune --prod
+# --ignore-scripts: prune drops husky (a devDependency) and then re-runs the
+# root `prepare` script, which would fail with "husky: not found".
+RUN pnpm build && pnpm prune --prod --ignore-scripts
 
 FROM node:22-alpine
 WORKDIR /app
